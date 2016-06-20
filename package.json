@@ -6,7 +6,7 @@
   "scripts": {
     "test": "mocha -b",
     "build": "babel lib -d ./build",
-    "serve": "node ./build/app.js",
+    "serve": "node ./build/index.js",
     "release": "./publi.sh"
   },
   "repository": {
