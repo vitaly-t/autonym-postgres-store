@@ -2,239 +2,163 @@
 
 This is a package for the Autonym API framework. It is a light wrapper around the [pg-promise](https://github.com/vitaly-t/pg-promise) library with some convenience methods for model operations in Autonym.
 
-## Usage
+## Installation
 
-Simply import this service into your app and use the public methods.
+Install into your project's dependencies with:
+
+```bash
+npm install --save autonym-postgres-store
+```
+
+## Basic usage
+### Creating a connection
+Import the module into your model file. This package exports a factory function, which is passed a Postgres connection string. If not provided, it will attempt to use the string defined in the environment variable `POSTGRES_CONNECTION`.
 
 ```js
+import PostgresStoreFactory from 'autonym-postgres-store';
+const PostgresStore = PostgresStoreFactory(); // uses `process.env.POSTGRES_CONNECTION`
+// or
+const PostgresStore = PostgresStoreFactory('postgres://USERNAME:PASSWORD@HOST:PORT/DB'); // uses given string
+```
+
+If Postgres is used in other models in your application, the existing database connection will be reused as long as the connection string is identical between invocations of the PostgresStoreFactory.
+
+### Instantiating the store
+You can instantiate the PostgresStore inside your `_init` method. It is common practice to save the instance as a property `store` on your class.
+
+The first argument is the name of the table. If your table is not in the *public* schema, you can pass an array in instead, where the first value is the schema name and the second is the table name.
+
+```js
+import {Model} from 'autonym';
 import PostgresStoreFactory from 'autonym-postgres-store';
 const PostgresStore = PostgresStoreFactory();
 
 class Person extends Model {
-	static _init () {
-		this.store = new PostgresStore('people', {
-			perPage: 10,
-			sort: '+name'
-		});
-	}
-
-	static _find (query) {
-		return this.store.find(query);
-	}
-
-	static _findOne (personId) {
-		return this.store.findOne(personId);
-	}
-
-	static _create (attributes) {
-		return this.store.create(attributes);
-	}
-
-	static _findOneAndUpdate (personId, attributes) {
-		return this.store.findOneAndUpdate(personId, attributes);
-	}
-
-	static _findOneAndDelete (personId) {
-		return this.store.findOneAndDelete(personId);
-	}
-
-	static _serialize (attributes) {
-		return this.store.serialize(attributes);
-	}
-
-	static _unserialize (attributes) {
-		return this.store.unserialize(attributes);
+	_init () {
+		this.store = new PostgresStore('people'); // table
+		// or
+		this.store = new PostgresStore(['myapp', 'people']); // [schema, table]
 	}
 }
 
 export default Person;
 ```
 
-## `PostgresStoreFactory([connectionString])`
-### Arguments
-* [string `connectionString`] A connection string to use to connect to Postgres. **Default:** `process.env.POSTGRES_CONNECTION`
+The second argument is a set of options expressed as an object literal. Here are the options:
 
-### Return Values
-* Returns a new `PostgresStore` class. Will return an existing class if the factory is invoked a second time using the same connection string.
+* [string] `searchable`: An array of field names that the user is allowed to search and sort on. If not provided, the user can perform searches on any field. Use the names as they are represented in your schema, not column names. **Example:** `['firstName', 'lastName']`.
+* string `sort`: Specifies the default sort order of the results. The first character should be a `+` for ascending or `-` for descending sort. The rest of the string should be a field name to sort by. Use the names as they are represented in your schema, not column names. **Example:** `+lastName`. (Compound sort is not available yet.) This is overridden by specifying a `sort` field in the query string. Can only sort on *searchable* columns.
+* integer `perPage`: The maximum number of records returned per page. By default, the records are not paginated. To fetch the *nth* page of results, the user should specify a `page` field in the query string (e.g. `page=2`). **Example:** `10`.
+* function `serializeField(field)`: A function that converts a field name from the request to a column name. By default, this converts a field to snake_case. **Example:** `field => _.lowerCase(field)`.
+* function `unserializeColumn(column)`: A function that converts a column name into a field name for the response. By default, this converts a column to camelCase. **Example:** `field => _.upperCase(field)`.
+* function `serialize(attributes)`: A function that takes an attributes object and returns the object that gets passed to the create and update methods. By default it maps the keys of the incoming object against `serializeField` and returns the result.
+* function `unserialize(attributes)`: A function that atkes an attributes object from find, findOne, create, and findOneAndUpdate calls and returns the object that is formatted for the API user. By default it maps the keys of the incoming object against `unserializeColumn` and returns the result.
 
-### Example
 ```js
+import {Model} from 'autonym';
 import PostgresStoreFactory from 'autonym-postgres-store';
-const PostgresStore = PostgresStoreFactory(); // uses `process.env.POSTGRES_CONNECTION`
-const Store1 = PostgresStoreFactory('postgres://root@localhost:5432/db'); // uses the given connection string
-const Store2 = PostgresStoreFactory('postgres://root@localhost:5432/db'); // will share the Postgres connection with `Store1` because the string is the same
+const PostgresStore = PostgresStoreFactory();
+
+class Person extends Model {
+	_init () {
+		this.store = new PostgresStore('people', {
+			perPage: 10,
+			sort: '+lastName',
+			searchable: ['firstName', 'lastName']
+		});
+	}
+}
+
+export default Person;
 ```
 
-## `new PostgresStore(table, [options])`
-### Arguments
-* string|[string, string] `table` The name of the table to perform operations against. If passed an array, considers the first element to be the schema name and the second, the table name.
-* [object `options`] Optional configuration.
-  * [integer `perPage`] The number of records to return per page for `find()` calls. **Default:** no pagination.
-  * [string `sort`] The default sorting of the result set for `find()` calls. Must be `+` (for ascending) or `-` (for descending) followed by a property name. The property will be passed to `options.serializeField(attribute)` to get the column name for the query. **Default:** No sorting.
-  * [object function(attributes) `serialize`] A function that accepts a hash of properties and should return a new hash where the keys and values are safe for insertion into the table. **Default:** this function invokes `options.serializeField(attribute)` on each attribute name and returns a new object with the serialized keys.
-  * [string function(attribute) `serializeField`] A function that accepts a property name and returns the name that is safe for query operations (usually a corresponding column name). **Default:** `_.snakeCase(attribute)`
-  * [object function(attributes) `unserialize`] A function that accepts a hash of column names and values and should return a new hash in the format the API should respond with. **Default:** this function invokes `options.unserializeColumn(column)` on each attribute and returns a new object with the unserialized keys.
-  * [string function(attribute) `unserializeColumn`] A function that accepts a column name and returns the name of the field that the API should respond with. **Default:** `_.camelCase(column)`
+### Using the default behavior
+The store instance has methods that are fully compatible with `_implementDefaultStoreCrudMethods`, so the quickest way to get started is to simply add this to your `_init` method:
 
-### Example
 ```js
-let store = new PostgresStore('people'); // uses the `people` table
+import {Model} from 'autonym';
+import PostgresStoreFactory from 'autonym-postgres-store';
+const PostgresStore = PostgresStoreFactory();
 
-store = new PostgresStore(['app', 'people']); // uses the `people` table in the `app` schema
+class Person extends Model {
+	_init () {
+		this.store = new PostgresStore('people', {
+			perPage: 10,
+			sort: '+lastName',
+			searchable: ['firstName', 'lastName']
+		});
+		
+		super._implementDefaultStoreCrudMethods(this.store);
+	}
+}
 
-store = new PostgresStore('people', {
-  perPage: 10, // limit the number of records per page to 10
-  sort: '+lastName', // sort the results by the `lastName` property ascending
-  serializeField: field => {
-    switch (field) {
-      case 'firstName': return 'fname';
-      case 'lastName': return 'lname';
-      default: return field;
-    }
-  }, // convert `firstName` to `fname` and `lastName` to `lname` before performing database operations
-  unserializeColumn: column => {
-    switch (column) {
-      case 'fname': return 'firstName';
-      case 'lname': return 'lastName';
-      default: return field;
-    }
-  } // convert `fname` to `firstName` and `lname` to `lastName` before sending response
-});
+export default Person;
 ```
 
-## `PostgresStore#find([query], [filter])`
-### Arguments
-* [object `query`] A flat hash, usually a result of the simple query string parser.
-** [string `page`] The page number of the result set to fetch. **Default:** `1`
-** [string `sort`] Sorting of the result set. Uses the same format as `options.sort`.
-** [string `search[field]`] Filters the result set to records whose `field` value is equal to the parameter. `field` is passed to `options.serializeField()`.
-** [string `search[field]~`] Filters the result set to records whose `field` value contains the parameter (case insensitive). `field` is passed to `options.serializeField()`.
-** [string `search[field]!`] Filters the result set to records whose `field` value is not equal to the parameter. `field` is passed to `options.serializeField()`.
-** [string `search[field]!~`] Filters the result set to records whose `field` value does not contain the parameter (case insensitive). `field` is passed to `options.serializeField()`.
-* [object `filter`] Only include results that match this filter. Similar to forcing `query['search[field]']`.
-** [string `field`] Filters the result set to records whose `field` value is equal to the parameter. `field` is passed to `options.serializeField()`.
+This simply implements `_create`, `_find`, `_findOne`, `_findOneAndUpdate`, and `_findOneAndDelete` on the model class, which pass their arguments onto the appropriate store methods.
 
-### Return Values
-* A promise. It resolves with an array of records passed through `options.unserialize()`.
+Of course, if your model does not match up with the store methods quite as perfectly, you can also manually invoke any of these methods in your model methods manually.
 
-### Example
-```js
-store.find().then(results => console.log(results)); // fetch the first page of results with no querying or filtering
+### Query strings on find calls
+The PostgresStore is equipped with basic searching, sorting, and paginating.
 
-// /people?page=2&sort=-lastName&search[firstName]=Joe&search[lastName]!=Schmoe&search[phoneNumber]~555&search[address]!~New York
-store.find(
-  {
-    page: 2, // fetch page 2 of the results
-    sort: '-lastName', // sort by last name descending
-    'search[firstName]': 'Joe', // filter to records whose `firstName` fields are `Joe`
-    'search[lastName]!': 'Schmoe', // filter to records whose `lastName` fields are not `Schmoe`
-    'search[phoneNumber]~': '555', // filter to records whose `phoneNumber` fields contain `555`
-    'search[address]!~': 'New York' // filter to records whose `address` fields do not contain `New York`
-  },
-  {
-    clientId: 42 // filter to records whose `clientId` fields are set to `42`
-  }
-).then(results => console.log(results));
-```
+#### Searching
+Users can perform basic searching by appending field/value pairs to the `search` query string parameter. For example, to search for people whose first name is `John`, use the path `/people?search[firstName]=John`.
 
-## `PostgresStore#findOne(id, [filter])`
-### Arguments
-* string `id` The value of the `id` property for the resource.
-* [object `filter`] Only include results that match this filter. Uses the same format as `find()`'s `filter` argument.
+Users can also use the "is not" operator, e.g. `/people?search[firstName][!=]=John`.
 
-### Return Values
-* A promise. It resolves with one record passed through `options.unserialize()`.
+There are also "contains operators": `~` (contains) and `!~` (does not contain). These operators surround the query with wildcards (`%`) and use the `ILIKE` operator. Example: `/people?search[firstName][~]=jo&search[lastName][!~]=do`.
 
-### Example
-```js
-store.findOne(6).then(result => console.log(result)); // fetch record with `id` `42`
+There is no support for "or" queries. Multiple parameters in `search` are all joined by `AND`.
 
-store.findOne(6, {
-  clientId: 42 // only return the record if it has field `clientId` set to `42`
-}).then(result => console.log(result));
-```
+Field names are passed to `serializeField` to produce column names to search by.
 
-## `PostgresStore#create(attributes)`
-### Arguments
-* object `attributes` The attributes to set on the new resource. Will be passed through `options.serialize()`.
+#### Sorting
+Users can sort by one field by specifying the `sort` query string parameter. The first character must be a `+` for ascending or `-` ascending, and the rest of the value is the field to sort by. The field is passed to `serializeField` to produce the column name. Example: `/people?sort=+lastName`.
 
-### Return Values
-* A promise. It resolves with one record passed through `options.unserialize()`.
+#### Pagination
+For resources with `perPage` set, users can request a page by its number in the query string, e.g. `?page=2`. If the page is out of bounds, an empty result set is returned.
 
-### Example
-```js
-store.create({firstName: 'Joe', lastName: 'Schmoe'}).then(result => console.log(result)); // creates new resource
-```
+### Error handling
+The PostgresStore has an error handling mechanism that tries to cast Postgres errors into instances of ClientError, which results in more appropriate error messages instead of just 500 errors.
 
-## `PostgresStore#findOneAndUpdate(id, attributes, [filter])`
-### Arguments
-* string `id` The value of the `id` property for the resource.
-* object `attributes` The attributes that should be updated. Will be passed through `options.serialize()`.
-* [object `filter`] Only update results that match this filter. Uses the same format as `find()`'s `filter` argument.
+#### When no resource is found
+For findOne, findOneAndUpdate, and findOneAndDelete calls, the error will be caught and transformed into a 404 not found error.
 
-### Return Values
-* A promise. It resolves with one record passed through `options.unserialize()`.
+#### When a unique constraint is violated
+For create and findOneAndUpdate calls, if the user attempts to provide a value that violates a unique constraint, the error will be caught and transformed into a 400 bad request error. **Note:** If this unique index is named in a very particular way, PostgresStore can parse it and return an error message in the same format as schema validation errors. Simply name your index like this example: `table_name__col_1_name__col_2_name__uk` (i.e. table name + two underscores + each column involved in the unique key separated by two underscores + two underscores + uk).
 
-### Example
-```js
-store.findOneAndUpdate(6, {firstName: 'John'}).then(result => console.log(result)); // updates resource
+#### When a foreign constraint is violated
+For create and findOneAndUpdate calls, if the user attempts to provide a value that is supposed to be a foreign key, but no foreign resource exists with that id, the error will be caught and transformed into a 400 bad request error. **Note:** If the foreign key index is named in a very particular way, PostgresStore can parse it and return an error message in the same format as schema validation errors. Simply name your index like this example: `table_name__col_1_name__col_2_name__fk` (i.e. table name + two underscores + each column involved in the foreign key separated by two underscores + two underscores + fk).
 
-store.findOneAndUpdate(6, {firstName: 'John'}, {clientId: 42}).then(result => console.log(result)); // updates resource if `clientId` is `42`
-```
+#### When the resource to be deleted has foreign references pointed to it
+For findOneAndDelete calls, if the user attempts to delete a resource but Postgres would not delete it because foreign resources have references pointed to it, the error will be caught and transformed into a 400 bad request error with details.
 
-## `PostgresStore#findOneAndDelete(id, [filter])`
-### Arguments
-* string `id` The value of the `id` property for the resource.
-* [object `filter`] Only delete results that match this filter. Uses the same format as `find()`'s `filter` argument.
+#### When attempting to search against non-string fields
+If the user attempts to write a search query using the `~` (contains) or `!~` (does not contain) operators, if the field being searched on is not a string-based field, the error will be caught and transformed to a 400 bad request error with details.
 
-### Return Values
-* A promise. It resolves with one record passed through `options.unserialize()`.
+Other errors are passed as is and will generate a 500 error.
 
-### Example
-```js
-store.findOneAndDelete(6).then(result => console.log(result)); // deletes resource
+### Method reference
+The PostgresStore has various methods for direct usage in the model.
 
-store.findOneAndDelete(6, {clientId: 42}).then(result => console.log(result)); // deletes resource if `clientId` is `42`
-```
+#### `create(attributes)`
+Returns a promise that resolves with the newly created record, given the serialized attributes.
 
-## `PostgresStore#transformError(err)`
-### Arguments
-* Error `err` An error that was the result of a query. Will attempt to determine if the error is due to a system/developer error or a client error. If the error is determined to be a client error, will return an instance of a subclass of `autonym-client-errors.ClientError`.
+#### `find(query, filter)`
+Returns a promise that resolves with an array of records, given a query (typically `req.query`) and optionally a filter, which is an array of additional restrictions for the WHERE clause (typically `req.filter`, which is populated by policies).
 
-### Return Values
-* If the error was because the operation was supposed to return one result and returned zero, will return an instance of `autonym-client-errors.NotFoundError`.
-* If the error was because the operation attempted to update or delete a resource but a foreign resource was referencing it, will return an instance of `autonym-client-errors.BadRequestError`.
-* If the error was because the operation attempted to set a value but the field has a foreign constraint and the value did not match an existing resource id, will return an instance of `autonym-client-errors.BadRequestError`.
-** If the Postgres index is named in the format of `table_name__column_1_name__column_2_name__column_N_name__idx`, will return an instance of `autonym-client-errors.InvalidPayloadError` with the response in the same format as JSON schema error reporting. The `keyword` property will be set to `foreignKey`.
-* If the error was because the operation attempted to set a value but the field has a unique constraint and the value already existed in the table, will return an instance of `autonym-client-errors.BadRequestError`.
-** If the Postgres index is named in the format of `table_name__column_1_name__column_2_name__column_N_name__idx`, will return an instance of `autonym-client-errors.InvalidPayloadError` with the response in the same format as JSON schema error reporting. The `keyword` property will be set to `unique`.
+#### `findOne(id, filter)`
+Returns a promise that resolves with the record, given its id and optionally a filter.
 
-## `PostgresStore#none(...arguments)`
-An alias for [`pg-promise.Database#none()`](http://vitaly-t.github.io/pg-promise/Database.html#.none). Will catch common user errors and pass to `PostgresStore#transformError(err)`.
+#### `findOneAndUpdate(id, attributes, filter)`
+Returns a promise that resolves with the updated record, given the id of the record to update, the serialized attributes, and optionally a filter.
 
-## `PostgresStore#one(...arguments)`
-An alias for [`pg-promise.Database#one()`](http://vitaly-t.github.io/pg-promise/Database.html#.one). Will catch common user errors and pass to `PostgresStore#transformError(err)`.
+#### `findOneAndDelete(id, filter)`
+Returns a promise that resolves with the deleted record's id, given the id of the record to delete and optionally a filter.
 
-## `PostgresStore#many(...arguments)`
-An alias for [`pg-promise.Database#many()`](http://vitaly-t.github.io/pg-promise/Database.html#.many). Will catch common user errors and pass to `PostgresStore#transformError(err)`.
+#### `transformError(err)`
+Returns a new error if a more appropriate error can be gleaned from the Postgres error. (See "Error handling".) Otherwise returns the given error.
 
-## `PostgresStore#oneOrNone(...arguments)`
-An alias for [`pg-promise.Database#oneOrNone()`](http://vitaly-t.github.io/pg-promise/Database.html#.oneOrNone). Will catch common user errors and pass to `PostgresStore#transformError(err)`.
-
-## `PostgresStore#any(...arguments)`
-An alias for [`pg-promise.Database#any()`](http://vitaly-t.github.io/pg-promise/Database.html#.any). Will catch common user errors and pass to `PostgresStore#transformError(err)`.`
-
-## `PostgresStore#stringify(value)`
-### Arguments
-* any `value` A value to serialize before placing in a query
-
-### Return Values
-* If `value` is an object or array, calls `JSON.stringify()` on it and returns the result; otherwise, returns `value`.
-
-### Examples
-```js
-store.stringify(5); // returns `5`
-store.stringify('hello'); // returns `hello`
-store.stringify(['a', 'b', 'c']); // returns `["a","b","c"]`
-store.stringify({a: 1, b: 2}); // returns `{"a":1,"b":2}`
-```
+#### `none`, `one`, `many`, `oneOrNone`, `any`
+These are all just wrappers for the equivalent functions in [pg-promise](https://github.com/vitaly-t/pg-promise). They catch errors with `transformError` and will throw ClientErrors if possible.
