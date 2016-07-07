@@ -1,0 +1,42 @@
+{
+  "name": "autonym-postgres-store",
+  "version": "0.5.1",
+  "description": "A store class for the Autonym API framework for interacting with a Postgres database.",
+  "main": "./lib/index.js",
+  "scripts": {
+    "test": "mocha -b",
+    "build": "babel lib -d ./build",
+    "serve": "node ./build/index.js",
+    "release": "./publi.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mmiller42/autonym-postgres-store.git"
+  },
+  "keywords": [
+    "autonym",
+    "api",
+    "postgres",
+    "store"
+  ],
+  "author": "Matt Miller",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/mmiller42/autonym-postgres-store/issues"
+  },
+  "homepage": "https://github.com/mmiller42/autonym-postgres-store#readme",
+  "devDependencies": {
+    "babel-cli": "^6.10.1",
+    "babel-preset-node5": "^11.1.0",
+    "babel-preset-stage-2": "^6.5.0",
+    "mocha": "^2.5.3",
+    "should": "^9.0.2",
+    "source-map-support": "^0.4.0"
+  },
+  "dependencies": {
+    "autonym-client-errors": "^0.2.1",
+    "lodash": "^4.13.1",
+    "pg-monitor": "^0.5.9",
+    "pg-promise": "^4.7.1"
+  }
+}
