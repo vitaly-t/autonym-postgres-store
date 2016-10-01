@@ -119,6 +119,38 @@ Users can sort by one field by specifying the `sort` query string parameter. The
 #### Pagination
 For resources with `perPage` set, users can request a page by its number in the query string, e.g. `?page=2`. If the page is out of bounds, an empty result set is returned.
 
+### Filters
+Filters are used to limit the result or result set based on criteria not included in the search query but instead are added programmatically, for instance by policies. For example, a request to get a list of all users might be inherently limited to only users that the current user has permission to view; or a request to update a user might be limited to only the current user.
+
+The Postgres store accepts filters in the format of `{field: 'employerId', value: '42', operator: '='}`. `field` represents a field that can be serialized to a column name, `value` the value to compare against, and `operator` one of `=`, `!=`, `~`, or `!~`. Filters are and'ed together and added to all queries to restrict the rows that can be read from or written to in the request. If `operator` is omitted, it defaults to `=`.
+
+Example:
+
+```js
+// policies/restrict-to-public-profiles.policy.js
+
+function restrictToPublicProfiles (req) {
+  req.filters.push({field: 'public', value: true});
+}
+
+export default restrictToPublicProfiles;
+```
+
+```json
+// schemas/person.schema.json
+
+{
+  "id": "Person",
+  "policies": {
+    "create": "isAdmin",
+    "find": {"or": ["isLoggedIn", "restrictToPublicProfiles"]},
+    "findOne": {"or": ["isLoggedIn", "restrictToPublicProfiles"]},
+    "findOneAndUpdate": {"or": ["isAdmin", {"and": ["isLoggedIn", "isSelf"]}]},
+    "findOneAndDelete": {"or": ["isAdmin", {"and": ["isLoggedIn", "isSelf"]}]}
+  }
+}
+```
+
 ### Error handling
 The PostgresStore has an error handling mechanism that tries to cast Postgres errors into instances of ClientError, which results in more appropriate error messages instead of just 500 errors.
 
