@@ -1,6 +1,6 @@
 {
   "name": "autonym-postgres-store",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "A store class for the Autonym API framework for interacting with a Postgres database.",
   "main": "./lib/index.js",
   "scripts": {
